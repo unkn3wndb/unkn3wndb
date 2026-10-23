@@ -1,6 +1,9 @@
 name = "unkn3wndb"
 compatibility_date = "2026-10-23"
 workers_dev = true
+main = "src/index.js"
+addresses = ["*@unkn3wndb.site"]
 
 [assets]
 directory = "./"
+binding = "ASSETS"
