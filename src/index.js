@@ -1,7 +1,7 @@
 // unkn3wndb.site — static assets + catch-all email forwarding.
 //
 // fetch: serve the static site from the assets binding (unchanged behaviour).
-// email: catch-all (*@unkn3wndb.site) forwards every message to all four
+// email: catch-all (*@unkn3wndb.site) forwards every message to all five
 //        verified destination addresses. Destinations must be verified in
 //        Cloudflare Email Routing, otherwise forward() rejects for that address.
 
@@ -10,6 +10,7 @@ const DESTINATIONS = [
   "rbaz9864@gmail.com",
   "samyoggiri048@gmail.com",
   "andry.ndongo@gmail.com",
+  "ironthe288@gmail.com",
 ];
 
 export default {
