@@ -8,7 +8,7 @@
 const DESTINATIONS = [
   "joliciousb4@gmail.com",
   "rbaz9864@gmail.com",
-  "samyoggiri048@gmail.com",
+  "test.sylph101@gmail.com",
   "andry.ndongo@gmail.com",
   "ironthe288@gmail.com",
 ];
